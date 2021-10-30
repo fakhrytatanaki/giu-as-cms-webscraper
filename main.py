@@ -153,8 +153,12 @@ def sync_course(course,courseDir):
 
 
 
-seasons = get_course_and_season_infos(html_str)
-sync_all_content(seasons[0])
+try:
+    courses_page_req = requests.get(G_CMS_BASE_URL + G_CMS_ALL_COURSES_PAGE)
+    seasons = get_course_and_season_infos(courses_page_req.content)
+    sync_all_content(seasons[0])
+except requests.exceptions.RequestException as e:
+    print(e)
 
 
 
