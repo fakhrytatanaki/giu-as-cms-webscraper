@@ -154,7 +154,7 @@ def sync_course(course,courseDir):
 
 
 try:
-    courses_page_req = requests.get(G_CMS_BASE_URL + G_CMS_ALL_COURSES_PAGE)
+    courses_page_req = requests.get(G_CMS_BASE_URL + G_CMS_ALL_COURSES_PAGE,G_NTLM_AUTH)
     seasons = get_course_and_season_infos(courses_page_req.content)
     sync_all_content(seasons[0])
 except requests.exceptions.RequestException as e:
