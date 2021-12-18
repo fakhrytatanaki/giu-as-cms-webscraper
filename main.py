@@ -6,12 +6,23 @@ import mimetypes
 import os
 from urllib.parse import urlparse
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 # global constants/variables are prefixed with G_
 
 G_CMS_BASE_URL='https://cms.giu-uni.de'
 G_CMS_ALL_COURSES_PAGE='/apps/student/ViewAllCourseStn'
 G_NTLM_AUTH = None
-G_ROOT_DIR= './cms_dir_test/'
+G_ROOT_DIR= '/Users/fakhrytatanaki/Documents/GIU/'
 G_SYMS_INVALID_IN_FILENAME="<>:\"/\|?*"
 
 
@@ -95,7 +106,6 @@ def construct_season_directory_tree(season):
     dirs = []
 
     rootDir=season['title']
-    print(rootDir)
 
     for course in season['courses']:
         dirs+=[(rootDir+'/'+course['title']+'/')]
@@ -105,40 +115,44 @@ def construct_season_directory_tree(season):
 
 G_NTLM_AUTH = get_ntlm_credentials('./account.json')
 
-def sync_all_content(season):
+def sync_all_content(season,filteredExtensions):
     dirs = construct_season_directory_tree(season)
 
     for i,c in enumerate(season['courses']):
-        print("downloading contents of \'{}\'".format(c['title']))
         courseDir = G_ROOT_DIR+dirs[i]
         os.makedirs(courseDir,exist_ok=True)
-        sync_course(c,courseDir)
+        sync_course(c,courseDir,filteredExtensions)
 
-def sync_course(course,courseDir):
+def sync_course(course,courseDir,filteredExtensions):
 
-    print('fetching page for course \'{}\''.format(course['title']))
-    print('GET : \'{}\''.format(course['link']))
+    print("_________________________")
+    print(f"syncing course : {bcolors.OKBLUE}{course['title']}{bcolors.ENDC}")
+    print("_________________________\n")
 
     try:
         coursePageReq = requests.get(course['link'],auth=G_NTLM_AUTH)
     except requests.exceptions.RequestException as e:
-        print('PAGE FETCHING ERROR : ',e)
+        print(f" {bcolors.FAIL}PAGE FETCHING ERROR {bcolors.ENDC}: {e}")
         return
 
     courseContents = get_course_content(coursePageReq.content)
 
     for content in courseContents:
-        print("found content \'{}\', starting download".format(content['label']))
-
+        print(f"   found content [ {bcolors.OKBLUE} '{content['label']}' {bcolors.ENDC} ]")
         content_url_path = urlparse(content['link']).path
         content_ext = os.path.splitext(content_url_path)[1]
+
+        if content_ext in filteredExtensions:
+            print(f"      {bcolors.WARNING} type {content_ext} is filtered, skipping {bcolors.ENDC}\n")
+            continue
+
         filePath = courseDir+make_filename_compatible(content['label'])+content_ext
 
         if os.path.isfile(filePath):
-            print("content already exists")
+            print(f"      {bcolors.WARNING}content already exists, skipping {bcolors.ENDC}\n")
             continue
 
-        print('GET : \'{}\''.format(content['link']))
+        print(f"      GET :{bcolors.OKCYAN}{content['link']}{bcolors.ENDC}")
 
         try:
             contentRawStream = requests.get(content['link'],auth=G_NTLM_AUTH)
@@ -147,16 +161,36 @@ def sync_course(course,courseDir):
             print('CONTENT FETCHING ERROR : ',e)
             return
 
-        print('saving as :',filePath)
+        print('      {bcolors.OKGREEN} [SUCCESS] {bcolors.ENDC} saving as :',filePath,"\n")
         with open(filePath,'wb') as f:
             f.write(contentRawStream.content)
 
 
 
+def prompt():
+    options = {
+            "filteredExtensions" : [],
+    }
+
+    ans=''
+
+    while (ans!='n' and ans!='y'):
+        ans = input("would you like to download videos? y/n? : ").lower()
+
+    if ans=='n':
+        options['filteredExtensions']+=['.mpg','.mp4','.webm','.avi','.mkv','.ts']
+
+    return options
+
+
+
+
 try:
+    options = prompt()
+    print(f"{bcolors.OKCYAN}fetching and scraping the CMS...{bcolors.ENDC}")
     courses_page_req = requests.get(G_CMS_BASE_URL + G_CMS_ALL_COURSES_PAGE,auth=G_NTLM_AUTH)
     seasons = get_course_and_season_infos(courses_page_req.content)
-    sync_all_content(seasons[0])
+    sync_all_content(seasons[0],options['filteredExtensions'])
 except requests.exceptions.RequestException as e:
     print(e)
 
