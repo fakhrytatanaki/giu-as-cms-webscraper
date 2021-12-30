@@ -45,16 +45,14 @@ def get_ntlm_credentials(fileLoc):
 def get_course_content(html_str):
 
     document = BeautifulSoup(html_str,'html.parser')
+
+
     weeks ={}
+    wnum = len(document.find_all('h2',class_='text-big',string=re.compile("Week")))
 
     for weekNode in document.find_all(class_='weeksdata'):
-
-        week=weekNode.find('p',string=re.compile("Week"))
-
-        if week:
-            week=week.string
-        else:
-            break
+        week=f"Week {wnum}"
+        wnum-=1
 
         weeks[week]=[]
         contents = weeks[week]
@@ -71,6 +69,7 @@ def get_course_content(html_str):
                 'label' : weekNodeContentLabels[i],
                 'link' : G_CMS_BASE_URL + weekNodeLinks[i],
                 }]
+
 
     return weeks
 
@@ -151,7 +150,6 @@ def sync_course(course,courseDir,filteredExtensions):
     courseWeeks = get_course_content(coursePageReq.content)
 
     for week in courseWeeks:
-        os.makedirs(f"{courseDir}{week}",exist_ok=True)
         for content in courseWeeks[week]:
             print(f"found content [ {bcolors.OKBLUE} '{content['label']}' {bcolors.ENDC} ]")
             content_url_path = urlparse(content['link']).path
@@ -176,6 +174,7 @@ def sync_course(course,courseDir,filteredExtensions):
                 return
 
             print(f"{bcolors.OKGREEN} [SUCCESS] {bcolors.ENDC} saving as :",filePath,"\n")
+            os.makedirs(f"{courseDir}{week}",exist_ok=True)
             with open(filePath,'wb') as f:
                 f.write(contentRawStream.content)
 
