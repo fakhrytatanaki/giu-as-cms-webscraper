@@ -4,6 +4,7 @@ import requests
 import json
 import mimetypes
 import os
+import re
 from urllib.parse import urlparse
 
 class bcolors:
@@ -44,9 +45,21 @@ def get_ntlm_credentials(fileLoc):
 def get_course_content(html_str):
 
     document = BeautifulSoup(html_str,'html.parser')
-    contents = []
+    weeks ={}
 
     for weekNode in document.find_all(class_='weeksdata'):
+
+        week=weekNode.find('p',string=re.compile("Week"))
+
+        if week:
+            week=week.string
+        else:
+            break
+
+        weeks[week]=[]
+        contents = weeks[week]
+
+
         weekNodeLinks = [ n.get('href') for n in weekNode.find_all(class_='btn btn-primary contentbtn')]
         current_node = weekNode.find_all(class_='card-body')
         weekNodeContentLabels = [ n.div.text for n in current_node]
@@ -59,7 +72,7 @@ def get_course_content(html_str):
                 'link' : G_CMS_BASE_URL + weekNodeLinks[i],
                 }]
 
-    return contents
+    return weeks
 
 
 def get_url_course_page(courseId,seasonid):
@@ -108,7 +121,7 @@ def construct_season_directory_tree(season):
     rootDir=season['title']
 
     for course in season['courses']:
-        dirs+=[(rootDir+'/'+course['title']+'/')]
+        dirs+=[f"{rootDir}/{course['title']}/"]
 
     return dirs
 
@@ -135,35 +148,39 @@ def sync_course(course,courseDir,filteredExtensions):
         print(f" {bcolors.FAIL}PAGE FETCHING ERROR {bcolors.ENDC}: {e}")
         return
 
-    courseContents = get_course_content(coursePageReq.content)
+    courseWeeks = get_course_content(coursePageReq.content)
 
-    for content in courseContents:
-        print(f"   found content [ {bcolors.OKBLUE} '{content['label']}' {bcolors.ENDC} ]")
-        content_url_path = urlparse(content['link']).path
-        content_ext = os.path.splitext(content_url_path)[1]
+    for week in courseWeeks:
+        os.makedirs(f"{courseDir}{week}",exist_ok=True)
+        for content in courseWeeks[week]:
+            print(f"found content [ {bcolors.OKBLUE} '{content['label']}' {bcolors.ENDC} ]")
+            content_url_path = urlparse(content['link']).path
+            content_ext = os.path.splitext(content_url_path)[1]
 
-        if content_ext in filteredExtensions:
-            print(f"      {bcolors.WARNING} type {content_ext} is filtered, skipping {bcolors.ENDC}\n")
-            continue
+            if content_ext.lower() in filteredExtensions:
+                print(f"{bcolors.WARNING} type {content_ext} is filtered, skipping {bcolors.ENDC}\n")
+                continue
 
-        filePath = courseDir+make_filename_compatible(content['label'])+content_ext
+            filePath = f"{courseDir}{week}/{make_filename_compatible(content['label'])}{content_ext}"
 
-        if os.path.isfile(filePath):
-            print(f"      {bcolors.WARNING}content already exists, skipping {bcolors.ENDC}\n")
-            continue
+            if os.path.isfile(filePath):
+                print(f"{bcolors.WARNING}content already exists, skipping {bcolors.ENDC}\n")
+                continue
 
-        print(f"      GET :{bcolors.OKCYAN}{content['link']}{bcolors.ENDC}")
+            print(f"GET :{bcolors.OKCYAN}{content['link']}{bcolors.ENDC}")
 
-        try:
-            contentRawStream = requests.get(content['link'],auth=G_NTLM_AUTH)
+            try:
+                contentRawStream = requests.get(content['link'],auth=G_NTLM_AUTH)
+            except requests.exceptions.RequestException as e:
+                print('CONTENT FETCHING ERROR : ',e)
+                return
 
-        except requests.exceptions.RequestException as e:
-            print('CONTENT FETCHING ERROR : ',e)
-            return
+            print(f"{bcolors.OKGREEN} [SUCCESS] {bcolors.ENDC} saving as :",filePath,"\n")
+            with open(filePath,'wb') as f:
+                f.write(contentRawStream.content)
 
-        print('      {bcolors.OKGREEN} [SUCCESS] {bcolors.ENDC} saving as :',filePath,"\n")
-        with open(filePath,'wb') as f:
-            f.write(contentRawStream.content)
+
+
 
 
 
