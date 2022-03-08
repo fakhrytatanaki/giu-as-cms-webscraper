@@ -23,8 +23,8 @@ class bcolors:
 G_CMS_BASE_URL='https://cms.giu-uni.de'
 G_CMS_ALL_COURSES_PAGE='/apps/student/ViewAllCourseStn'
 G_NTLM_AUTH = None
-G_ROOT_DIR= '/Users/fakhrytatanaki/Documents/GIU/'
 G_SYMS_INVALID_IN_FILENAME="<>:\"/\|?*"
+G_VIDEO_EXTENSIONS=['.mpg','.mp4','.webm','.avi','.mkv','.ts']
 
 
 def make_filename_compatible(filename):
@@ -36,10 +36,17 @@ def make_filename_compatible(filename):
             out+=c
     return out
 
-def get_ntlm_credentials(fileLoc):
-    with open(fileLoc) as _secret:
-        secret = json.load(_secret)
-        return HttpNtlmAuth(secret['username'],secret['pass'])
+def get_config_file(fileLoc):
+    if os.path.isfile(fileLoc):
+        with open(fileLoc,'r') as f:
+            config = json.load(f)
+            return config 
+    return None
+
+def set_config_file(config,fileLoc):
+    with open(fileLoc,'w') as f:
+        json.dump(config,f)
+
 
 
 def get_course_content(html_str):
@@ -117,7 +124,7 @@ def get_course_and_season_infos(html_str):
 def construct_season_directory_tree(season):
     dirs = []
 
-    rootDir=season['title']
+    rootDir='/'+season['title']
 
     for course in season['courses']:
         dirs+=[f"{rootDir}/{course['title']}/"]
@@ -125,13 +132,14 @@ def construct_season_directory_tree(season):
     return dirs
 
 
-G_NTLM_AUTH = get_ntlm_credentials('./account.json')
 
-def sync_all_content(season,filteredExtensions):
+def sync_all_content(season,config):
+
     dirs = construct_season_directory_tree(season)
+    filteredExtensions = G_VIDEO_EXTENSIONS if config['allowVideos'] else []
 
     for i,c in enumerate(season['courses']):
-        courseDir = G_ROOT_DIR+dirs[i]
+        courseDir = config['rootDir']+dirs[i]
         os.makedirs(courseDir,exist_ok=True)
         sync_course(c,courseDir,filteredExtensions)
 
@@ -183,30 +191,80 @@ def sync_course(course,courseDir,filteredExtensions):
 
 
 
-def prompt():
-    options = {
-            "filteredExtensions" : [],
-    }
+def prompt(config):
 
     ans=''
 
-    while (ans!='n' and ans!='y'):
-        ans = input("would you like to download videos? y/n? : ").lower()
+    if config:
+        while (ans!='n' and ans!='y'):
+            ans = input(f"{bcolors.OKCYAN}would you like to change your configuration?{bcolors.ENDC} y/n? : ").lower()
+    else:
+        print(f"{bcolors.WARNING}no config file found, creating a new one {bcolors.ENDC}")
 
-    if ans=='n':
-        options['filteredExtensions']+=['.mpg','.mp4','.webm','.avi','.mkv','.ts']
+    if config==None or ans=='y':
+        config = {
+                "ntlmCredentials" : {},
+                "rootDir" : os.getcwd()
+        }
 
-    return options
+        while True:
+            ans = input(f"{bcolors.OKCYAN}would you like to download videos? {bcolors.ENDC} y/n? : ").lower()
 
+            if ans=='y':
+                config['allowVideos']=True
+                break
+
+            if ans=='n':
+                config['allowVideos']=False
+                break
+
+
+
+        while True:
+            ans = input(f"{bcolors.OKCYAN}enter your GIU AS username : {bcolors.ENDC}")
+
+            if not ans:
+                print(f"{bcolors.ERROR}username can't be empty{bcolors.ENDC}")
+            else:
+                config['ntlmCredentials']['username']=ans
+                break
+
+        while True:
+            ans = input(f"{bcolors.OKCYAN}enter your GIU AS password :{bcolors.ENDC} ")
+
+            if not ans:
+                print(f"{bcolors.ERROR}password can't be empty{bcolors.ENDC}")
+            else:
+                config['ntlmCredentials']['pass']=ans
+                break
+
+        ans = input(f"{bcolors.OKCYAN}specify the directory where you want to save the courses{bcolors.ENDC} (default : {config['rootDir']} ) : ")
+
+        if ans:
+            config['rootDir']=ans
+
+        set_config_file(config,'./config.json')
+
+
+    return config
 
 
 
 try:
-    options = prompt()
+
+
+    config = get_config_file('./config.json')
+    config = prompt(config)
+
+    G_NTLM_AUTH = HttpNtlmAuth(config['ntlmCredentials']['username'],config['ntlmCredentials']['pass']);
+
+
     print(f"{bcolors.OKCYAN}fetching and scraping the CMS...{bcolors.ENDC}")
+
     courses_page_req = requests.get(G_CMS_BASE_URL + G_CMS_ALL_COURSES_PAGE,auth=G_NTLM_AUTH)
     seasons = get_course_and_season_infos(courses_page_req.content)
-    sync_all_content(seasons[0],options['filteredExtensions'])
+    sync_all_content(seasons[0],config)
+
 except requests.exceptions.RequestException as e:
     print(e)
 
